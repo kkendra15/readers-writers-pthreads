@@ -10,12 +10,44 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <semaphore.h>
+
+#include <iostream> //remove
 
 //global variables:
-//shared string
+char sharedstring[] = "Cats are better than dogs.";     //shared string
+
+/**
+ * Checks if arguments are valid non-negative integers
+ * 
+ * @param args - A command line argument
+ * @return true if argument is a valid positive number
+ * @return false if argument is not a valid positive number
+ */
+bool isNum(char args[])
+{
+    //check for negative symbol
+    if (args[0] == '-')
+    {
+        return false;
+    }
+
+    for (int i = 0; args[i] != 0; i++)
+    {
+        if (!isdigit(args[i]))
+            return false;
+    }
+    return true;
+}
 
 void *writer(void *param)
 {
+
+
+    long tid;
+   tid = (long)param;
+   printf("Hello World! It's me, writer thread #%ld!\n", tid);
+   pthread_exit(NULL);
     //variables
 
     //wait(wrt)
@@ -34,6 +66,11 @@ void *writer(void *param)
 
 void *reader(void *param)
 {
+
+    long tid;
+   tid = (long)param;
+   printf("Hello World! It's me, reader thread #%ld!\n", tid);
+   pthread_exit(NULL);
     //enter crit section
     //wait(mutex)
     //readcount++
@@ -54,36 +91,86 @@ void *reader(void *param)
 //takes 2 cmmd line args - # of readers, # of writers
 int main (int argc, char *argv[])
 {
-    //get command line args
-
-    if (argc != 2)
+    int numreaders, numwriters;
+    //check for correct number of arguments
+    if (argc != 3)
     {
         printf("Incorrent number of arguments");
         exit(EXIT_FAILURE);
     }
+    //check for valid command line arguments:
+    if (isNum(argv[1]))
+        numreaders = atoi(argv[1]);
+    if (isNum(argv[2]))
+        numwriters = atoi(argv[2]);
 
-    //intialize shared string - global variable
 
     //initialize semaphores:
     //semaphore mutex=1, wrt=1
-    sem_t rw_sem;
-    sem_t cs_sem;
+    sem_t rw_sem;   //reader and writer
+    sem_t cs_sem;   //critical section
+    int readcount = 0;
 
     //innitialize semaphores to 1
-    sem_init(&rw_sem, 0, 1);
-    sem_init(&cs_sem, 0, 1);
-    //check return value for success
-
-    //readcount=0
+    if (sem_init(&rw_sem, 0, 1) == -1) 
+    {
+        perror("semaphore initialization");
+        exit(EXIT_FAILURE);
+    }
+    
+    if (sem_init(&cs_sem, 0, 1) == -1)
+    {
+        perror("semaphore initialization");
+        exit(EXIT_FAILURE);
+    }
+   
 
     //create reader and writer threads
+    //pthread
+    pthread_t rthreads[numreaders];
+    pthread_t wthreads[numwriters];
+    int rc;
+    long t;
+
+    for(t=0; t< numreaders; t++)
+    {
+      printf("In main: creating reader thread %ld\n", t);
+      rc = pthread_create(&rthreads[t], NULL, reader, (void*)t);
+      if (rc){
+         printf("ERROR; return code from pthread_create() is %d\n", rc);
+         exit(-1);
+      }
+   }
+
+   for (t=0; t< numwriters; t++)
+   {   
+        pthread_join(wthreads[t], NULL);
+
+        for(t=0; t< numwriters; t++)
+        {
+            printf("In main: creating writer thread %ld\n", t);
+            rc = pthread_create(&wthreads[t], NULL, writer, (void*)t);
+
+            if (rc)
+            {
+            printf("ERROR; return code from pthread_create() is %d\n", rc);
+            exit(-1);
+            }
+        }
+    }
+
+   /* Last thing that main() should do */
+  // pthread_exit(NULL);
+
 
     //wait for reader threads to finish
-    // pthread_joing
+    // pthread_join
+
     //wait for writer threads to finish
 
     //cleanup and exit
 
 
+    return 0;
 
 }
