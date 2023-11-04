@@ -11,11 +11,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <semaphore.h>
+#include <string.h>
+#include <unistd.h>
+#include <ctype.h>
 
-#include <iostream> //remove
 
 //global variables:
-char sharedstring[] = "Cats are better than dogs.";     //shared string
+char sharedstr[] = "All work and no play makes Jack a dull boy.";     //shared string
+sem_t rw_sem;   //reader and writer
+sem_t cs_sem;   //protects readers' crit section
+int readcount = 0;
 
 /**
  * Checks if arguments are valid non-negative integers
@@ -28,9 +33,7 @@ bool isNum(char args[])
 {
     //check for negative symbol
     if (args[0] == '-')
-    {
         return false;
-    }
 
     for (int i = 0; args[i] != 0; i++)
     {
@@ -42,49 +45,68 @@ bool isNum(char args[])
 
 void *writer(void *param)
 {
-
-
-    long tid;
-   tid = (long)param;
-   printf("Hello World! It's me, writer thread #%ld!\n", tid);
-   pthread_exit(NULL);
-    //variables
-
-    //wait(wrt)
-
     //loop until string is empty
-    // {
-        //print message stating it is writing
-        //remove last char of string
+    while (sharedstr[0] != '\0')
+    {
+        sem_wait(&rw_sem);
+
+        int size = strlen(sharedstr);
+        if (size > 0)
+            sharedstr[size - 1] = '\0';
+        
+        sem_post(&rw_sem);
 
         //sleep for 1 second
-    // }
+        sleep(1);
+    } 
 
-    //signal(wrt)
+    pthread_exit(NULL);
 }
 
 
 void *reader(void *param)
 {
+    //enter critical section
+    while (1)
+    {
+        //wait(mutex)
+        sem_wait(&cs_sem);
+        readcount++;
+        printf("Readcount: %d\n", readcount);
 
-    long tid;
-   tid = (long)param;
-   printf("Hello World! It's me, reader thread #%ld!\n", tid);
-   pthread_exit(NULL);
-    //enter crit section
-    //wait(mutex)
-    //readcount++
-    //if readcount ==1
-        //wait(wrt)
-    //signal(mutex) ---- exit crit section
+        //if first reader, wait for access
+        if (readcount == 1)
+        {
+            sem_wait(&rw_sem);
+        }
+        
+        //signal(mutex) ---- exit critical section
+        sem_post(&cs_sem);
 
-    //do reading ----> print out
+        //do reading ----> print out the shared string
+        printf("%s\n", sharedstr);
 
-    //wait(mutex) ----- enter crit sec
-    //readcount--
-    //if readount==0
-        //signal(wrt)
-    //signal(mutex) ------ exit crit sec
+        //wait(mutex) ----- enter critical section
+        sem_wait(&cs_sem);
+        readcount--;
+
+        printf("Readcount: %d\n", readcount);
+
+        //signal writer if it is the last reader
+        if (readcount == 0)
+            sem_post(&rw_sem);
+
+
+        //signal(mutex) ------ exit crit sec
+        sem_post(&cs_sem);
+
+        sleep(1);
+
+        if (sharedstr[0] == '\0') 
+            break;
+    }
+    pthread_exit(NULL);
+    
 }
 
 
@@ -105,11 +127,6 @@ int main (int argc, char *argv[])
         numwriters = atoi(argv[2]);
 
 
-    //initialize semaphores:
-    //semaphore mutex=1, wrt=1
-    sem_t rw_sem;   //reader and writer
-    sem_t cs_sem;   //critical section
-    int readcount = 0;
 
     //innitialize semaphores to 1
     if (sem_init(&rw_sem, 0, 1) == -1) 
@@ -127,48 +144,57 @@ int main (int argc, char *argv[])
 
     //create reader and writer threads
     //pthread
-    pthread_t rthreads[numreaders];
-    pthread_t wthreads[numwriters];
-    int rc;
-    long t;
-
-    for(t=0; t< numreaders; t++)
-    {
-      printf("In main: creating reader thread %ld\n", t);
-      rc = pthread_create(&rthreads[t], NULL, reader, (void*)t);
-      if (rc){
-         printf("ERROR; return code from pthread_create() is %d\n", rc);
-         exit(-1);
-      }
-   }
-
-   for (t=0; t< numwriters; t++)
-   {   
-        pthread_join(wthreads[t], NULL);
-
-        for(t=0; t< numwriters; t++)
+    pthread_t rthreads[numreaders]; //will hold reader thread id's
+    pthread_t wthreads[numwriters]; //will hold writer thread ids
+   
+   //create reader threads
+   for (int i = 0; i < numreaders; i++)
+   {
+        if (pthread_create(&rthreads[i], NULL, reader, NULL) != 0) 
         {
-            printf("In main: creating writer thread %ld\n", t);
-            rc = pthread_create(&wthreads[t], NULL, writer, (void*)t);
-
-            if (rc)
-            {
-            printf("ERROR; return code from pthread_create() is %d\n", rc);
-            exit(-1);
-            }
+            printf("ERROR; return code from pthread_create() is %d\n", i);
+            exit(EXIT_FAILURE);
+        }
+   }
+   
+    //create writer threads
+    for (int i = 0; i < numwriters; i++)
+    {
+        if (pthread_create(&wthreads[i], NULL, writer, NULL) != 0) 
+        {
+            printf("ERROR; return code from pthread_create() is %d\n", i);
+            exit(EXIT_FAILURE);
         }
     }
 
-   /* Last thing that main() should do */
-  // pthread_exit(NULL);
-
-
     //wait for reader threads to finish
-    // pthread_join
+    for (int i = 0; i < numreaders; i++)
+    {
+        if (pthread_join(rthreads[i], NULL) != 0)
+        {
+            printf("Error joining reader thread%d\n", i);
+            exit(EXIT_FAILURE);
+        }
+    }
 
     //wait for writer threads to finish
+    for (int i = 0; i < numwriters; i++)
+    {
+        if (pthread_join(wthreads[i], NULL) != 0)
+        {
+            printf("Error joining reader thread%d\n", i);
+            exit(EXIT_FAILURE);
+        }
+    }
+
+
+
+   /* Last thing that main() should do */
+   
 
     //cleanup and exit
+    sem_destroy(&rw_sem);
+    sem_destroy(&cs_sem);
 
 
     return 0;
